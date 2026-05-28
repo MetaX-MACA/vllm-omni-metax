@@ -2,13 +2,11 @@
 # 2026 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 """vllm-omni-metax adapter plugin.
 
-This package intentionally does **not** register any `vllm.platform_plugins`
-entry point. The MetaX platform continues to be owned by `vllm-metax`.
-It only registers a `vllm_omni.platform_plugins` entry point so that
-`vllm-omni` can resolve a MetaX-aware Omni platform.
+Keep package import lightweight. Entry points import ``vllm_omni_metax.plugin``
+directly, and model inspection may import ``vllm_omni_metax.models`` in a
+subprocess. Importing platform classes here can trigger circular vllm-omni
+platform resolution during model inspection.
 """
 
-from .plugin import metax_omni_platform_plugin
-
-__all__ = ["metax_omni_platform_plugin"]
+__all__: list[str] = []
 

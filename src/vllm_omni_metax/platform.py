@@ -17,19 +17,18 @@ logger = init_logger(__name__)
 
 class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
     _omni_enum = OmniPlatformEnum.CUDA
+    _enum = OmniPlatformEnum.CUDA
 
     device_enum = OmniPlatformEnum.CUDA
     deivce_type = "cuda"
     dist_backend = "nccl"
     device_control_env_var = "CUDA_VISIBLE_DEVICES"
 
-    @classmethod
     def get_omni_ar_worker_cls(cls) -> str:
-        return "vllm_omni.worker.gpu_ar_worker.GPUARWorker"
+        return "vllm_omni_metax.worker.gpu_ar_worker.MetaxGPUARWorker"
 
-    @classmethod
     def get_omni_generation_worker_cls(cls) -> str:
-        return "vllm_omni.worker.gpu_generation_worker.GPUGenerationWorker"
+        return "vllm_omni_metax.worker.gpu_generation_worker.MetaxGPUGenerationWorker"
 
     @classmethod
     def get_default_stage_config_path(cls) -> str:
@@ -123,7 +122,7 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
 
     @classmethod
     def get_device_count(cls) -> int:
-        return MacaPlatform.device_count()
+        return torch.cuda.device_count()
     
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:

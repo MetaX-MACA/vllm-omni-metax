@@ -59,9 +59,15 @@ def _apply_metax_patches() -> None:
         return
     
     try:
-        from vllm_omni_metax.patches import apply_rope_patch
+        from vllm_omni_metax.patches import (
+            apply_rope_patch,
+            apply_metax_qwen3_tts_runtime_patches,
+        )
+        from vllm_omni_metax.models import register_metax_omni_models
 
         apply_rope_patch()
+        register_metax_omni_models()
+        apply_metax_qwen3_tts_runtime_patches()
     except Exception:
         logger.warning("Failed to apply vllm-omni-metax patches.", exc_info=True)
 

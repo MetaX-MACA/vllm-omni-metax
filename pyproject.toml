@@ -9,7 +9,7 @@ name = "vllm-omni-metax"
 version = "0.20.0"
 description = "MetaX adapter plugin for vllm-omni built on top of vllm-metax"
 readme = "README.md"
-requires-python = "=3.12"
+requires-python = ">=3.12"
 authors = [
   { name = "Metax Team"}
 ]
