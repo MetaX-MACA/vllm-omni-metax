@@ -57,19 +57,51 @@ def _apply_metax_patches() -> None:
     if _env_flag("VLLM_OMNI_METAX_DISABLE_PATCHES"):
         logger.info("vllm-omni-metax patches disabled by VLLM_OMNI_METAX_DISABLE_PATCHES.")
         return
-    
+
+    logger.info("Applying vllm-omni-metax patches...")
+
+    # Apply each patch independently — a failure in one must not block the
+    # others.  deploy resolution runs first so subsequent patches can rely on
+    # deploy config values provided by the plugin's YAML.
+
+    # 1. Deploy resolution patch
+    try:
+        from vllm_omni_metax.patches.deploy_resolution_patch import apply_deploy_resolution_patch
+
+        apply_deploy_resolution_patch()
+    except Exception:
+        logger.warning("Failed to apply deploy_resolution patch.", exc_info=True)
+
     try:
         from vllm_omni_metax.patches import (
+            apply_code_predictor_patch,
             apply_rope_patch,
             apply_metax_qwen3_tts_runtime_patches,
         )
         from vllm_omni_metax.models import register_metax_omni_models
 
+        apply_code_predictor_patch()
         apply_rope_patch()
         register_metax_omni_models()
         apply_metax_qwen3_tts_runtime_patches()
     except Exception:
         logger.warning("Failed to apply vllm-omni-metax patches.", exc_info=True)
+
+    # Deploy resolution patch may have been deferred because
+    # stage_config was still initialising during platform detection.
+    # Retry after a short delay so the import call stack can unwind.
+    def _retry_deploy():
+        try:
+            from vllm_omni_metax.patches.deploy_resolution_patch import ensure_patch_installed
+
+            ensure_patch_installed()
+        except Exception:
+            pass
+    
+    import threading
+    threading.Timer(0.5, _retry_deploy).start()
+
+    logger.info("vllm-omni-metax patches applied.")
 
 def metax_omni_platform_plugin() -> Optional[str]:
     """Entry point for `vllm_omni.platform_plugins`.

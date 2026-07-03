@@ -8,5 +8,7 @@ subprocess. Importing platform classes here can trigger circular vllm-omni
 platform resolution during model inspection.
 """
 
-__all__: list[str] = []
+from .plugin import metax_omni_platform_plugin
+
+__all__ = ["metax_omni_platform_plugin"]
 

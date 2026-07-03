@@ -1,0 +1,9 @@
+soundfile
+librosa
+strenum
+xgrammar==0.1.33
+av
+apache-tvm-ffi==0.1.9
+fastapi[standard] >= 0.115.0, < 0.137.0
+transformers >= 4.56.0, != 5.0.*, != 5.1.*, != 5.2.*, != 5.3.*, != 5.4.*, < 5.5.0
+onnxruntime

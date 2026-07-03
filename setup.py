@@ -13,6 +13,7 @@ import torch
 from setuptools import setup
 from setuptools_scm import get_version
 from packaging.version import Version, parse
+from setuptools_scm.version import ScmVersion
 def uninstall_onnxruntime() -> None:
     """
     Uninstall onnxruntime package if it exists.
@@ -104,7 +105,7 @@ def get_maca_version() -> Version:
         first_line = file.readline().strip()
     return parse(first_line.split(":")[-1])
 def fixed_version_scheme(version: ScmVersion) -> str:
-    return "0.20.0"
+    return "0.22.0"
 def always_hash(version: ScmVersion) -> str:
     """
     Always include short commit hash and current date (YYYYMMDD)
@@ -211,7 +212,7 @@ def get_install_requires() -> list[str]:
     """
     device = detect_target_device()
     requirements_dir = Path(__file__).parent / "requirements"
-    requirements_file = requirements_dir / f"{device}.txt"
+    requirements_file = requirements_dir / f"common.txt"
     print(f"Loading requirements from: {requirements_file}")
     requirements = load_requirements(requirements_file)
     if not requirements:

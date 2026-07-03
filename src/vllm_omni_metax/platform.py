@@ -20,14 +20,38 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
     _enum = OmniPlatformEnum.CUDA
 
     device_enum = OmniPlatformEnum.CUDA
-    deivce_type = "cuda"
+    device_type = "cuda"
     dist_backend = "nccl"
     device_control_env_var = "CUDA_VISIBLE_DEVICES"
 
+    # ------------------------------------------------------------------
+    # Deploy-patch lazy install.  Called from worker-cls getters which
+    # are invoked during stage engine init — well after all imports are
+    # complete and stage_config is guaranteed fully loaded.
+    # ------------------------------------------------------------------
+
+    _deploy_patch_done: bool = False
+
+    @classmethod
+    def _ensure_deploy_patch(cls) -> None:
+        if cls._deploy_patch_done:
+            return
+        cls._deploy_patch_done = True
+        try:
+            from vllm_omni_metax.patches.deploy_resolution_patch import ensure_patch_installed
+
+            ensure_patch_installed()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+
     def get_omni_ar_worker_cls(cls) -> str:
+        cls._ensure_deploy_patch()
         return "vllm_omni_metax.worker.gpu_ar_worker.MetaxGPUARWorker"
 
     def get_omni_generation_worker_cls(cls) -> str:
+        cls._ensure_deploy_patch()
         return "vllm_omni_metax.worker.gpu_generation_worker.MetaxGPUGenerationWorker"
 
     @classmethod

@@ -87,19 +87,21 @@ def _torch_apply_rotary_emb(
 
     return out
 
+_USE_EXT_ROTARY = None
 
 def _metax_apply_rotary_emb(*args, **kwargs):
-    try:
-        from flash_attn.layers.rotary import apply_rotary_emb as ext_apply_rotary_emb
+    global _USE_EXT_ROTARY
+    if _USE_EXT_ROTARY is None:
+        try:
+            from flash_attn.layers.rotary import apply_rotary_emb as ext_fn
+            ext_fn(*args, **kwargs)  # test call
+            _USE_EXT_ROTARY = True
+        except Exception:
+            _USE_EXT_ROTARY = False
 
+    if _USE_EXT_ROTARY:
         return ext_apply_rotary_emb(*args, **kwargs)
-    except Exception:
-        logger.warning(
-            "External flash_attn rotary failed; using torch rotary fallback.",
-            exc_info=True,
-        )
-        return _torch_apply_rotary_emb(*args, **kwargs)
-
+    return _torch_apply_rotary_emb(*args, **kwargs)
 
 def _install_vllm_flash_attn_rotary_shim() -> None:
     """Make vllm.vllm_flash_attn.layers.rotary importable on MetaX.
