@@ -110,6 +110,18 @@ platforms:
       - stage_id: 2
         enforce_eager: true
 
+  # MetaX (maca): stage 2 (code2wav) shares GPU 2 with stage 1 (talker).
+  # On the MetaX/MXKW driver, creating a CUDA stream on a device that already
+  # has active CUDA graphs blocks forever (mxkwCreateQueueBlock ioctl
+  # timeout), so stage 2 must run eager after stage 1 captures. Stage 0
+  # (GPU 0,1) and stage 1 (GPU 2, first on that device) keep CUDA graphs.
+  # remove_at: MetaX driver supports stream creation on a device with active
+  # CUDA graphs.
+  maca:
+    stages:
+      - stage_id: 2
+        enforce_eager: true
+
   xpu:
     stages:
       - stage_id: 0
