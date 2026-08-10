@@ -163,6 +163,79 @@ def _patch_qwen3_tts_base_task_guard(_retries: int = 5) -> None:
     logger.warning("MetaX: patched Qwen3-TTS preprocess with Base-task variant guard.")
 
 
+def _patch_qwen3_tts_speaker_cache_ref_audio_guard(_retries: int = 5) -> None:
+    """Qwen3-TTS: keep the name-keyed speaker cache out of ref_audio requests.
+
+    The speaker cache key is (voice_name, mode, created_at) and does NOT
+    include the reference-audio identity. A Base voice-clone request that
+    carries ref_audio (inline payload, or an artifact-only ref) can therefore
+    hit a stale entry left by an earlier request that used the same voice name
+    with a DIFFERENT clip: the cached ref_code from clip A is reused together
+    with clip B's ref_text, the talker never emits EOS, and the request
+    streams ~40s of garbled audio (max_new_tokens exhausted). Repro: English
+    ref_audio first, then a Chinese ref_audio under the default voice "vivian"
+    (the client always sends voice=vivian + inline ref_audio for Base).
+
+    Patch ``build_prompt_embeds`` so that, for Base requests carrying any
+    reference audio, the speaker name is hidden from the cache block: neither
+    a read nor a write happens on the name-keyed slot. Pure name-based
+    requests (precomputed voice profiles, no ref_audio of any kind) still use
+    the cache as intended.
+
+    Added: V0.22.0 / V0.26.0.
+    remove_at: upstream vllm-omni includes the ref_audio identity in the
+    speaker cache key, or drops the name cache for inline ref_audio (matching
+    the VoxCPM2 voice_name guard, commit 574d129).
+    """
+    if os.getenv("VLLM_OMNI_METAX_DISABLE_TTS_SPEAKER_CACHE_GUARD", "0") == "1":
+        logger.warning("MetaX: Qwen3-TTS speaker-cache ref_audio guard is explicitly disabled.")
+        return
+
+    try:
+        from vllm_omni.model_executor.models.qwen3_tts.prompt_embeds_builder import (
+            Qwen3TTSPromptEmbedsBuilder,
+        )
+    except Exception:
+        logger.debug("MetaX: Qwen3-TTS speaker-cache ref_audio guard patch skipped.", exc_info=True)
+        if _retries > 0:
+            # The builder module may not be importable yet while vllm-omni is
+            # still initializing (plugin activation runs mid-import); retry
+            # once startup settles, mirroring the Base-task guard patch.
+            threading.Timer(2.0, lambda: _patch_qwen3_tts_speaker_cache_ref_audio_guard(_retries - 1)).start()
+        return
+
+    if getattr(Qwen3TTSPromptEmbedsBuilder, "_metax_speaker_cache_ref_audio_guard_patched", False):
+        return
+
+    _orig_build_prompt_embeds = Qwen3TTSPromptEmbedsBuilder.build_prompt_embeds
+
+    def _build_prompt_embeds_with_speaker_cache_guard(
+        self,
+        *,
+        task_type: str,
+        info_dict: dict,
+    ):
+        if task_type == "Base":
+            ref_audio_list = info_dict.get("ref_audio")
+            has_ref_audio_payload = isinstance(ref_audio_list, list) and bool(ref_audio_list)
+            artifact_key = info_dict.get("_qwen3_tts_ref_audio_cache_key")
+            if isinstance(artifact_key, (list, tuple)) and artifact_key:
+                artifact_key = artifact_key[0]
+            artifact_only = isinstance(artifact_key, str) and bool(artifact_key) and not has_ref_audio_payload
+            if has_ref_audio_payload or artifact_only:
+                # Do not expose the voice name to the name-keyed speaker cache:
+                # the slot is reserved for pure name-based requests. For Base,
+                # `speaker` is consumed only by the cache block, so clearing it
+                # here disables both the stale-read and the cache-poisoning
+                # write without affecting any other Base behavior.
+                info_dict["speaker"] = []
+        return _orig_build_prompt_embeds(self, task_type=task_type, info_dict=info_dict)
+
+    Qwen3TTSPromptEmbedsBuilder.build_prompt_embeds = _build_prompt_embeds_with_speaker_cache_guard
+    Qwen3TTSPromptEmbedsBuilder._metax_speaker_cache_ref_audio_guard_patched = True
+    logger.warning("MetaX: patched Qwen3-TTS speaker cache with ref_audio guard.")
+
+
 def apply_metax_qwen3_tts_runtime_patches() -> None:
     global _PATCHED
     if _PATCHED:
@@ -171,5 +244,6 @@ def apply_metax_qwen3_tts_runtime_patches() -> None:
     _patch_code2wav_cudagraph()
     _patch_snakebeta_triton()
     _patch_qwen3_tts_base_task_guard()
+    _patch_qwen3_tts_speaker_cache_ref_audio_guard()
 
     _PATCHED = True
