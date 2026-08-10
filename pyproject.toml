@@ -13,8 +13,8 @@ authors = [
   { name = "Metax Team"}
 ]
 dependencies = [
-  "vllm-omni==0.22.0",
-  "vllm_metax==0.22.0",
+  "vllm-omni==0.26.0",
+  "vllm_metax==0.26.0",
 ]
 dynamic = ["version"]
 
@@ -29,4 +29,3 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

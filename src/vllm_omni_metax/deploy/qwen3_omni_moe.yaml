@@ -12,6 +12,12 @@
 #     MIOpen conv_transpose1d is not capture-safe in the Code2Wav graph path.
 #   * Platform sections flip enforce_eager per-stage where platform
 #     cudagraph support differs.
+#
+# MetaX (vllm-omni-metax): the thinker stage runs tensor-parallel across
+# GPUs 0,1 and the talker/code2wav stages on GPU 2 (3-GPU layout), because
+# the MoE thinker does not fit a single MACA GPU.  The Code2Wav inner CUDA
+# graph is neutralized by the metax runtime patch, so the outer cudagraph
+# path (enforce_eager=false) stays.
 async_chunk: true
 
 connectors:
@@ -54,7 +60,9 @@ stages:
       temperature: 0.9
       top_k: 50
       max_tokens: 4096
+      # /------------------------  Metax Modification -------------------------\
       seed: 42
+      # \------------------------  Metax Modification -------------------------/
       repetition_penalty: 1.05
 
   - stage_id: 2
@@ -76,7 +84,9 @@ stages:
       top_p: 1.0
       top_k: -1
       max_tokens: 65536
+      # /------------------------  Metax Modification -------------------------\
       seed: 42
+      # \------------------------  Metax Modification -------------------------/
       repetition_penalty: 1.1
 
 platforms:

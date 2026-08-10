@@ -25,6 +25,8 @@ first, then add higher-level functionality.
 | `v0.18.0` | `maca3.5.3.x` | `0.4.3` | [vllm-metax:0.18.0](https://developer.metax-tech.com/softnova/docker?package_name=vllm-metax:0.18.0-torch2.8) |
 | `v0.19.0` | `maca3.5.3.x` | `0.4.4` | [vllm-metax:0.19.0](https://developer.metax-tech.com/softnova/docker?package_name=vllm-metax:0.19.0-torch2.8) |
 | `v0.20.0` | `maca3.5.3.x` | `0.4.5` | -- |
+| `v0.22.0` | `maca3.8.0.x` | `0.4.7` | -- |
+| `v0.26.0` | `maca3.8.2.x` (placeholder — confirm with the vllm-metax release table) | `0.4.x` | -- |
 
 !!! warning "Usage Warning"
     **vLLM-Omni-MetaX is intended to work out of the box with the matching Docker images listed above.**

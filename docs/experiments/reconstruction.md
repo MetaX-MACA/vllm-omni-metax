@@ -9,7 +9,7 @@ Validate that:
 
 - `vllm-metax` provides a healthy MetaX backend
 - `vllm-omni` can discover an external platform plugin
-- the `0.20.0` runtime patch layer is active when needed
+- the `0.26.0` runtime patch layer is active when needed
 - `vllm-omni-metax` activates and routes stage device visibility correctly
 
 ## Recommended reconstruction flow
