@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import torch
 from vllm.logger import init_logger
@@ -46,18 +45,23 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
 
     # ------------------------------------------------------------------
 
+    @classmethod
     def get_omni_ar_worker_cls(cls) -> str:
         cls._ensure_deploy_patch()
         return "vllm_omni_metax.worker.gpu_ar_worker.MetaxGPUARWorker"
 
+    @classmethod
     def get_omni_generation_worker_cls(cls) -> str:
         cls._ensure_deploy_patch()
         return "vllm_omni_metax.worker.gpu_generation_worker.MetaxGPUGenerationWorker"
 
     @classmethod
     def get_default_stage_config_path(cls) -> str:
-        return "vllm_omni/model_executor/stage_configs"
-    
+        # Aligned with the rel0260 CudaOmniPlatform: deploy YAMLs live under
+        # vllm_omni/deploy/.  The plugin deploy/ directory takes precedence
+        # via deploy_resolution_patch (see patches/).
+        return "vllm_omni/deploy"
+
     @classmethod
     def has_flash_attn_package(cls) -> bool:
         return False
@@ -67,11 +71,26 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
         cls,
         selected_backend: str | None,
         head_size: int,
+        allow_trtllm_default: bool = False,
     ) -> str:
         from vllm_omni.diffusion.attention.backends.registry import (
             DiffusionAttentionBackendEnum,
-        )       
+        )
         from vllm_omni.diffusion.envs import PACKAGES_CHECKER
+
+        # MetaX only supports FLASH_ATTN (when hardware + packages allow it)
+        # and TORCH_SDPA.  All other backends (FLASH_ATTN_HUB, FLASH_ATTN_3_HUB,
+        # SAGE_ATTN(_3), CUDNN_ATTN, FLASHINFER_ATTN, TRTLLM_ATTN) require
+        # NVIDIA-specific kernels and are not available on MACA.
+        _unsupported_backends = {
+            "FLASH_ATTN_HUB",
+            "FLASH_ATTN_3_HUB",
+            "SAGE_ATTN",
+            "SAGE_ATTN_3",
+            "CUDNN_ATTN",
+            "FLASHINFER_ATTN",
+            "TRTLLM_ATTN",
+        }
 
         # Check compute capability for Flash Attention support
         # Flash Attention requires compute capability >= 8.0 and < 10.0
@@ -91,6 +110,13 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
 
         if selected_backend is not None:
             backend_upper = selected_backend.upper()
+            if backend_upper in _unsupported_backends:
+                logger.warning(
+                    "Diffusion attention backend '%s' is not available on MetaX "
+                    "hardware. Falling back to TORCH_SDPA backend.",
+                    backend_upper,
+                )
+                return DiffusionAttentionBackendEnum.TORCH_SDPA.get_path()
             if backend_upper == "FLASH_ATTN" and not flash_attn_supported:
                 if not compute_supported:
                     logger.warning(
@@ -121,7 +147,7 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
         if local_rank is None:
             return torch.device("cuda")
         return torch.device("cuda", local_rank)
-    
+
     @classmethod
     def set_device(cls, device: torch.device | int) -> None:
         if isinstance(device, torch.device):
@@ -147,7 +173,7 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
     @classmethod
     def get_device_count(cls) -> int:
         return torch.cuda.device_count()
-    
+
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
         return torch.cuda.get_device_name(device_id)
@@ -189,4 +215,3 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
     @classmethod
     def get_profiler_cls(cls) -> str:
         return "vllm_omni.profiler.omni_torch_profiler.OmniTorchProfilerWrapper"
-

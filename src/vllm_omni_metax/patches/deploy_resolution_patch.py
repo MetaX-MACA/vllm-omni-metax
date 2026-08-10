@@ -2,19 +2,26 @@
 # 2026 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 """Monkey-patch deploy YAML resolution so the plugin can ship its own deploy configs.
 
-vllm-omni resolves deploy YAMLs from ``vllm_omni/deploy/<model_type>.yaml`` by
-default.  This patch inserts the plugin's deploy directory ahead of the builtin
-one so that MetaX-tuned deploy configs are picked up automatically without
-requiring ``--deploy-config`` on every invocation.
+vllm-omni 0.26 resolves deploy YAMLs through
+``vllm_omni.config.config_factory.StageConfigFactory``:
+- ``create_from_model`` — structured ``VllmOmniConfig`` path
+- ``create_legacy_stage_configs_from_model`` — current runtime legacy path
+
+Both receive ``deploy_config_path``, which is ``None`` when the user did not
+pass ``--deploy-config`` (see ``vllm_omni/entrypoints/utils.py``).
+This patch inserts the plugin's deploy directory ahead of the builtin
+``vllm_omni/deploy/`` by resolving a plugin YAML for the model when
+``deploy_config_path is None``.
 
 **Deferred installation.**  During platform plugin loading the
-``vllm_omni.config.stage_config`` module may still be initialising, which
+``vllm_omni.config.config_factory`` module may still be initialising, which
 makes a direct ``from ... import StageConfigFactory`` trigger a circular
 import.  We therefore look up ``StageConfigFactory`` via ``sys.modules`` and
 install the real monkey-patch only once the class is fully available.  If
 the class is not yet available when ``apply_deploy_resolution_patch()``
-runs, the patch is retried on the first call to ``create_from_model`` (i.e.
-at model-load time, when the module is guaranteed to be fully loaded).
+runs, the patch is retried on the first worker-cls getter call (via
+``MetaxOmniPlatform._ensure_deploy_patch``), i.e. at stage-engine init time,
+when the module is guaranteed to be fully loaded.
 """
 from __future__ import annotations
 
@@ -30,7 +37,8 @@ _WARNING_LOGGED = False
 
 _DEPLOY_DIR = Path(__file__).resolve().parent.parent / "deploy"
 
-_orig_create_from_registry = None
+_orig_create_from_model = None
+_orig_create_legacy = None
 
 
 # ---------------------------------------------------------------------------
@@ -42,19 +50,62 @@ def _get_stage_config_factory():
     """Return StageConfigFactory without triggering a fresh import.
 
     Uses ``sys.modules`` to avoid the circular import that occurs when
-    ``from vllm_omni.config.stage_config import StageConfigFactory`` is
+    ``from vllm_omni.config.config_factory import StageConfigFactory`` is
     executed while the module is still being initialised.
     """
-    mod = sys.modules.get("vllm_omni.config.stage_config")
+    mod = sys.modules.get("vllm_omni.config.config_factory")
     if mod is not None:
         return getattr(mod, "StageConfigFactory", None)
     # Module not yet imported at all — safe to import normally.
     try:
-        from vllm_omni.config.stage_config import StageConfigFactory
+        from vllm_omni.config.config_factory import StageConfigFactory
 
         return StageConfigFactory
     except ImportError:
         return None
+
+
+def _resolve_plugin_deploy_path(
+    factory_cls,
+    model: str,
+    trust_remote_code: bool | None,
+    deploy_config_path: str | None,
+) -> str | None:
+    """Return the plugin deploy YAML path when it exists for the model.
+
+    Precedence (highest to lowest):
+    1. ``--deploy-config`` CLI flag (untouched, ``deploy_config_path`` set)
+    2. Plugin ``deploy/`` directory (this function)
+    3. Builtin ``vllm_omni/deploy/`` / registry default (upstream resolution)
+
+    ``try_infer_model_type`` is cached upstream, so inferring the HF model
+    type here costs nothing extra (``get_pipeline_config`` uses the same
+    cached result).
+    """
+    if deploy_config_path is not None:
+        return deploy_config_path
+    try:
+        # HF config resolution needs a real bool: transformers treats None
+        # as "prompt for consent", which blocks non-interactively.
+        model_type = factory_cls.try_infer_model_type(model, bool(trust_remote_code))
+    except Exception:
+        logger.debug(
+            "MetaX: model type inference failed; skipping plugin deploy "
+            "resolution.",
+            exc_info=True,
+        )
+        return deploy_config_path
+    if model_type:
+        candidate = _DEPLOY_DIR / f"{model_type}.yaml"
+        if candidate.exists():
+            logger.info("Using plugin deploy YAML: %s", candidate)
+            return str(candidate)
+        logger.debug(
+            "No plugin deploy YAML for %r at %s; falling back to builtin.",
+            model_type,
+            candidate,
+        )
+    return deploy_config_path
 
 
 # ---------------------------------------------------------------------------
@@ -63,42 +114,54 @@ def _get_stage_config_factory():
 
 
 def _install_factory_patch() -> bool:
-    """Install the monkey-patch on StageConfigFactory._create_from_registry.
+    """Install the monkey-patch on StageConfigFactory entry points.
 
     Returns ``True`` on success, ``False`` when the class is not yet
     available (module still initialising).
     """
-    global _orig_create_from_registry
+    global _orig_create_from_model, _orig_create_legacy
 
-    if _orig_create_from_registry is not None:
+    if _orig_create_from_model is not None:
         return True  # already installed
 
     StageConfigFactory = _get_stage_config_factory()
     if StageConfigFactory is None:
         return False
 
-    _orig_create_from_registry = StageConfigFactory._create_from_registry
+    # The originals are classmethods captured bound to the class; the
+    # descriptor auto-binds cls, so the wrappers must not pass cls through.
+    _orig_create_from_model = StageConfigFactory.create_from_model
+    _orig_create_legacy = StageConfigFactory.create_legacy_stage_configs_from_model
 
     @classmethod
-    def _patched_create(cls, model_type, cli_overrides,
-                        deploy_config_path=None):
-        if deploy_config_path is None:
-            candidate = _DEPLOY_DIR / f"{model_type}.yaml"
-            if candidate.exists():
-                logger.info("Using plugin deploy YAML: %s", candidate)
-                deploy_config_path = str(candidate)
-            else:
-                logger.debug(
-                    "No plugin deploy YAML for %r at %s; falling back to builtin.",
-                    model_type, candidate,
-                )
-        # _orig_create_from_registry is a classmethod — the descriptor
-        # auto-binds cls, so we must not pass cls explicitly.
-        return _orig_create_from_registry(
-            model_type, cli_overrides,
-            deploy_config_path=deploy_config_path)
+    def _patched_create_from_model(cls, model, *, trust_remote_code,
+                                   cli_overrides, deploy_config_path):
+        deploy_config_path = _resolve_plugin_deploy_path(
+            cls, model, trust_remote_code, deploy_config_path)
+        return _orig_create_from_model(
+            model,
+            trust_remote_code=trust_remote_code,
+            cli_overrides=cli_overrides,
+            deploy_config_path=deploy_config_path,
+        )
 
-    StageConfigFactory._create_from_registry = _patched_create
+    @classmethod
+    def _patched_create_legacy(cls, model, *, trust_remote_code,
+                               cli_overrides, deploy_config_path,
+                               strategy_specs=None):
+        deploy_config_path = _resolve_plugin_deploy_path(
+            cls, model, trust_remote_code, deploy_config_path)
+        return _orig_create_legacy(
+            model,
+            trust_remote_code=trust_remote_code,
+            cli_overrides=cli_overrides,
+            deploy_config_path=deploy_config_path,
+            strategy_specs=strategy_specs,
+        )
+
+    StageConfigFactory.create_from_model = _patched_create_from_model
+    StageConfigFactory.create_legacy_stage_configs_from_model = _patched_create_legacy
+    StageConfigFactory._metax_deploy_patched = True
     return True
 
 
@@ -127,15 +190,9 @@ def apply_deploy_resolution_patch() -> None:
 
     Called automatically when the MetaX platform plugin activates.
 
-    Resolution precedence (highest to lowest):
-    1. ``--deploy-config`` CLI flag (untouched)
-    2. Plugin ``deploy/`` directory
-    3. Builtin ``vllm_omni/deploy/``
-
     If ``StageConfigFactory`` is not yet available (module still
     initialising during platform-plugin loading), the patch is deferred
-    and will be retried transparently on the first call to
-    ``create_from_model``.
+    and will be retried transparently via ``ensure_patch_installed()``.
     """
     global _ATTEMPTED
 
@@ -160,8 +217,8 @@ def apply_deploy_resolution_patch() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Lazy retry hook — called when _create_from_registry is first invoked
-# (after model loading, when stage_config is fully initialised).
+# Lazy retry hook — called from MetaxOmniPlatform._ensure_deploy_patch
+# (worker-cls getter time, when config_factory is fully initialised).
 # ---------------------------------------------------------------------------
 
 

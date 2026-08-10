@@ -1,9 +1,19 @@
+# Runtime dependencies for the MetaX platform plugin on vllm-omni 0.26.
+# transformers is kept aligned with vllm-omni 0.26 (>= 5.5.3, see
+# vllm-omni requirements/common.txt at v0.26.0).
+# fastapi / xgrammar / apache-tvm-ffi are pinned by vllm / vllm-omni 0.26
+# themselves and are intentionally NOT declared here to avoid resolution
+# conflicts (the 0.22-era pins fastapi<0.137 and xgrammar==0.1.33 would
+# clash with the vllm 0.26 line).
 soundfile
 librosa
 strenum
-xgrammar==0.1.33
 av
-apache-tvm-ffi==0.1.9
-fastapi[standard] >= 0.115.0, < 0.137.0
-transformers >= 4.56.0, != 5.0.*, != 5.1.*, != 5.2.*, != 5.3.*, != 5.4.*, < 5.5.0
 onnxruntime
+transformers >= 5.5.3
+aenum
+omegaconf
+prettytable
+diffusers
+janus
+cache-dit==1.3.0

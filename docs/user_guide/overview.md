@@ -18,7 +18,7 @@ At startup, it follows this logic:
 3. Otherwise, it asks `vllm-metax` to probe the MetaX runtime through
    `pymxsml`.
 4. During activation, it may install MetaX-specific runtime patches needed by
-   `vllm-omni 0.20.0` model paths.
+   `vllm-omni 0.26.0` model paths.
 5. Only when the runtime probe succeeds does it register the Omni platform
    class.
 
@@ -34,7 +34,7 @@ The new patch layer is intentionally narrow:
 - It installs a shim for the rotary embedding import path used by Omni
   diffusion/image code.
 - Its current purpose is to support `Qwen3-Omni` and
-  `Qwen-Image-Edit-2511` on the `0.20.0` stack.
+  `Qwen-Image-Edit-2511` on the `0.26.0` stack.
 
 ## Runtime behavior
 
@@ -74,7 +74,7 @@ aggressive assumptions on MetaX systems.
 - Start with automatic detection first and only use `VLLM_OMNI_METAX_FORCE=1`
   when isolating startup problems.
 - Keep `VLLM_OMNI_METAX_DISABLE_PATCHES=1` for A/B debugging only, not as the
-  default deployment mode for `0.20.0`.
+  default deployment mode for `0.26.0`.
 - Treat `vllm-metax` as the source of truth for runtime health.
 - Keep version combinations stable across `vllm-metax`, `vllm-omni`, and this
   repository.

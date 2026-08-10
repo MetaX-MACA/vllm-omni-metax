@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,8 @@ def _detect_metax_with_mxsml() -> bool:
     except Exception:
         logger.debug("MetaX plugin probe failed.", exc_info=True)
         return False
-    
+
+
 def _apply_metax_patches() -> None:
     if _env_flag("VLLM_OMNI_METAX_DISABLE_PATCHES"):
         logger.info("vllm-omni-metax patches disabled by VLLM_OMNI_METAX_DISABLE_PATCHES.")
@@ -72,23 +74,32 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply deploy_resolution patch.", exc_info=True)
 
+    # 2. Code predictor dtype fix (Qwen3-Omni talker forward)
     try:
-        from vllm_omni_metax.patches import (
-            apply_code_predictor_patch,
-            apply_rope_patch,
-            apply_metax_qwen3_tts_runtime_patches,
-        )
-        from vllm_omni_metax.models import register_metax_omni_models
+        from vllm_omni_metax.patches import apply_code_predictor_patch
 
         apply_code_predictor_patch()
+    except Exception:
+        logger.warning("Failed to apply code_predictor patch.", exc_info=True)
+
+    # 3. RoPE fallback shim (vllm.vllm_flash_attn.layers.rotary)
+    try:
+        from vllm_omni_metax.patches import apply_rope_patch
+
         apply_rope_patch()
-        register_metax_omni_models()
+    except Exception:
+        logger.warning("Failed to apply rope patch.", exc_info=True)
+
+    # 4. Qwen3-TTS runtime patches (Code2Wav cudagraph / Triton SnakeBeta)
+    try:
+        from vllm_omni_metax.patches import apply_metax_qwen3_tts_runtime_patches
+
         apply_metax_qwen3_tts_runtime_patches()
     except Exception:
-        logger.warning("Failed to apply vllm-omni-metax patches.", exc_info=True)
+        logger.warning("Failed to apply qwen3-tts runtime patch.", exc_info=True)
 
     # Deploy resolution patch may have been deferred because
-    # stage_config was still initialising during platform detection.
+    # config_factory was still initialising during platform detection.
     # Retry after a short delay so the import call stack can unwind.
     def _retry_deploy():
         try:
@@ -97,11 +108,11 @@ def _apply_metax_patches() -> None:
             ensure_patch_installed()
         except Exception:
             pass
-    
-    import threading
+
     threading.Timer(0.5, _retry_deploy).start()
 
     logger.info("vllm-omni-metax patches applied.")
+
 
 def metax_omni_platform_plugin() -> Optional[str]:
     """Entry point for `vllm_omni.platform_plugins`.
@@ -127,4 +138,3 @@ def metax_omni_platform_plugin() -> Optional[str]:
         return "vllm_omni_metax.platform.MetaxOmniPlatform"
 
     return None
-

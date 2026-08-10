@@ -105,7 +105,7 @@ def get_maca_version() -> Version:
         first_line = file.readline().strip()
     return parse(first_line.split(":")[-1])
 def fixed_version_scheme(version: ScmVersion) -> str:
-    return "0.22.0"
+    return "0.26.0"
 def always_hash(version: ScmVersion) -> str:
     """
     Always include short commit hash and current date (YYYYMMDD)

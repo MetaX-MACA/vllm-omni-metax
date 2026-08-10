@@ -26,7 +26,7 @@ This repository keeps that boundary clear:
 - It registers an out-of-tree Omni platform plugin only when activation is
   appropriate.
 - It applies a focused runtime patch only where upstream CUDA-only assumptions
-  block MetaX execution in `vllm-omni 0.20.0`.
+  block MetaX execution in `vllm-omni 0.26.0`.
 - It mirrors Omni's stage device selection to the MetaX runtime environment.
 
 ## Recommended workflow

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python openai_chat_completion_client_for_multimodal_generation.py \
-    --query-type use_image --model "/external/ai/models/llm/Qwen/Qwen3-Omni-30B-A3B-Instruct/" --image-path "dog.jpg" \
+    --query-type use_image --model "/mxstorage/pde_ai/models/llm/Qwen/Qwen3-Omni-30B-A3B-Instruct/" --image-path "dog.jpg" \
     --prompt "描述一下这张图片"
     # --stream
 

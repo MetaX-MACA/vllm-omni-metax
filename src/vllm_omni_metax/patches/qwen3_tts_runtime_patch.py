@@ -60,18 +60,27 @@ def _patch_snakebeta_triton() -> None:
         logger.warning("MetaX: Qwen3-TTS Triton SnakeBeta is explicitly enabled.")
         return
 
+    # vllm-omni 0.26 moved SnakeBeta to vllm_omni.model_executor.models.common.
+    # Try the 0.26 location first, fall back to the 0.22-era location.
     try:
-        from vllm_omni.model_executor.models.qwen3_tts.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 import (
+        from vllm_omni.model_executor.models.common.snake_activation import (
             SnakeBeta,
         )
     except Exception:
-        logger.debug("MetaX: Qwen3-TTS SnakeBeta patch skipped.", exc_info=True)
-        return
+        try:
+            from vllm_omni.model_executor.models.qwen3_tts.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 import (
+                SnakeBeta,
+            )
+        except Exception:
+            logger.debug("MetaX: Qwen3-TTS SnakeBeta patch skipped.", exc_info=True)
+            return
 
     if getattr(SnakeBeta, "_metax_triton_patched", False):
         return
 
-    # Force eager path.
+    # Force eager path (class attr contract: None = untried, False = unavailable,
+    # callable = ready).  On 0.22 this import used to no-op because SnakeBeta
+    # did not exist; on 0.26 it is real and needs actual disabling.
     SnakeBeta._triton_kernel = False
     SnakeBeta._init_triton = staticmethod(lambda: False)
     SnakeBeta._metax_triton_patched = True

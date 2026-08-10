@@ -33,7 +33,7 @@ may or may not be present.
 
 ## Patch layer
 
-`patches/rope_patch.py` exists because parts of `vllm-omni 0.20.0` still assume
+`patches/rope_patch.py` exists because parts of `vllm-omni 0.26.0` still assume
 CUDA-oriented flash-attn rotary imports. On MetaX, that assumption can break
 model startup even though the rest of the stack is otherwise usable.
 

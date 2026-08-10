@@ -1,9 +1,7 @@
 #!/bin/bash
 
-# pip install soundfile librosa
-# pip install strenum
-# pip uninstall xgrammar -y && pip install xgrammar==0.1.33
-# #fix /opt/conda/lib/python3.12/site-packages/prometheus_fastapi_instrumentator/routing.py +55
-# pip install av
+# Qwen3-ASR e2e server (vllm-omni 0.26 stack; plain vLLM audio support, no --omni).
+# Runtime deps (soundfile/librosa/strenum/av) come from the plugin's
+# requirements/common.txt — no manual pip steps needed.
 
-vllm serve /external/ai/models/llm/Qwen/Qwen3-ASR-1.7B/ --served-model-name qwen3-asr-1.7b --disable-log-stats
+vllm serve /mxstorage/pde_ai/models/llm/Qwen/Qwen3-ASR-1.7B/ --served-model-name qwen3-asr-1.7b --disable-log-stats

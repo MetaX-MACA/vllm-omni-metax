@@ -1,24 +1,7 @@
-<!-- markdownlint-disable MD001 MD041 -->
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-dark.png">
-    <img alt="vLLM-Omni MetaX" src="https://raw.githubusercontent.com/MetaX-MACA/vllm-omni-metax/main/docs/assets/logos/vllm-metax-logo.webp" width="55%">
-  </picture>
-</p>
+# vllm-omni-metax
 
-<h3 align="center">
-vLLM Omni MetaX Plugin
-</h3>
-
-<div align="center">
-
-[![Docs](https://img.shields.io/badge/Docs-Read%20the%20Docs-8A2BE2?style=flat&logo=readthedocs&logoColor=white)](https://vllm-omni-metax.readthedocs.io/en/latest/)
-
-</div>
-
-<p align="center">
-| <a href="https://www.metax-tech.com/en/"><b>About MetaX</b></a> | <a href="https://vllm-omni-metax.readthedocs.io/en/latest/"><b>Documentation</b></a> | <a href="https://slack.vllm.ai"><b>#sig-maca</b></a> |
-</p>
+A thin adapter plugin that lets `vllm-omni` use the already-installed
+`vllm-metax` platform implementation without modifying `vllm-omni` source files.
 
 ## About
 
@@ -37,14 +20,19 @@ integration, this plugin focuses on bridging the **vLLM-Omni execution stack**
 | vllm-omni | Handles multi-stage multimodal inference |
 | vllm-omni-metax | Bridges Omni to MetaX backend |
 
+## Design rules
+
+- `vllm-metax` remains the only owner of the MetaX/vLLM platform.
+- `vllm-omni-metax` only provides an Omni platform plugin.
+- No override of `vllm.platform_plugins`.
+- No monkey-patching of `vllm-metax` registration.
+
 ## Prerequisites
 
 - MetaX GPU (C-series)
 - Linux
-- Python 3.10 -- 3.12
-- vLLM (version aligned with vllm-metax)
-- vLLM-Omni
-- vllm-metax
+- Python >= 3.12
+- `vllm` / `vllm-metax` / `vllm-omni` aligned to the same release train
 
 ## Installation
 
@@ -56,11 +44,31 @@ pip install -e .
 
 ## Compatibility
 
-The current documentation and adaptation target the `0.20.0` stack:
+The current documentation and adaptation target the `0.26.0` stack:
 
-- `vllm-omni-metax 0.20.0`
-- `vllm-omni 0.20.0`
-- `vllm-metax 0.20.0`
+- `vllm-omni-metax 0.26.0`
+- `vllm-omni 0.26.0`
+- `vllm-metax 0.26.0` (MACA 3.8.2.x placeholder — confirm against the
+  vllm-metax release table before shipping)
 
-See [docs](https://vllm-omni-metax.readthedocs.io/en/latest/)
+See [docs/getting_started/installation.md](docs/getting_started/installation.md)
 for the full setup flow and runtime patch notes.
+
+## Verify
+
+```bash
+python - <<'PY'
+from importlib.metadata import entry_points
+print(entry_points(group="vllm_omni.platform_plugins"))
+PY
+```
+
+## Optional environment controls
+
+- `VLLM_OMNI_METAX_FORCE=1`: force-enable this plugin if MetaX detection is flaky.
+- `VLLM_OMNI_METAX_DISABLE=1`: disable this plugin.
+- `VLLM_OMNI_METAX_DISABLE_PATCHES=1`: skip the runtime monkey-patches.
+- `VLLM_OMNI_METAX_ENABLE_CODE2WAV_CUDAGRAPH=1`: keep the Qwen3-TTS Code2Wav
+  inner CUDA graph (default: neutralized as no-op).
+- `VLLM_OMNI_METAX_ENABLE_TRITON_SNAKEBETA=1`: keep the Triton SnakeBeta kernel
+  (default: forced eager).
