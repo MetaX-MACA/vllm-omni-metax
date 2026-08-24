@@ -88,19 +88,23 @@ def _torch_apply_rotary_emb(
     return out
 
 _USE_EXT_ROTARY = None
+_EXT_ROTARY_FN = None
+
 
 def _metax_apply_rotary_emb(*args, **kwargs):
-    global _USE_EXT_ROTARY
+    global _USE_EXT_ROTARY, _EXT_ROTARY_FN
     if _USE_EXT_ROTARY is None:
         try:
-            from flash_attn.layers.rotary import apply_rotary_emb as ext_fn
-            ext_fn(*args, **kwargs)  # test call
+            from flash_attn.layers.rotary import apply_rotary_emb as _ext
+
+            _EXT_ROTARY_FN = _ext
+            _EXT_ROTARY_FN(*args, **kwargs)  # test call
             _USE_EXT_ROTARY = True
         except Exception:
             _USE_EXT_ROTARY = False
 
     if _USE_EXT_ROTARY:
-        return ext_apply_rotary_emb(*args, **kwargs)
+        return _EXT_ROTARY_FN(*args, **kwargs)
     return _torch_apply_rotary_emb(*args, **kwargs)
 
 def _install_vllm_flash_attn_rotary_shim() -> None:
