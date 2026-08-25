@@ -11,7 +11,8 @@
 #   TENSOR_PARALLEL   DiT tensor parallel size (default 4)
 #   ULYSESS_DEGREE    Ulysses sequence parallel degree (default 1)
 #   USE_HSDP          1 to enable HSDP weight sharding (default 0)
-#   VAE_PATCH_PARALLEL_SIZE   VAE patch parallel size (default 4)
+#   VAE_PATCH_PARALLEL_SIZE   VAE patch parallel size (default 1; >1 currently
+#                             produces striped/green artifacts on 81-frame runs)
 #   VAE_USE_TILING    1 to enable VAE tiling (default 1)
 set -euo pipefail
 
@@ -20,7 +21,7 @@ PORT="${PORT:-8091}"
 TENSOR_PARALLEL="${TENSOR_PARALLEL:-4}"
 ULYSESS_DEGREE="${ULYSESS_DEGREE:-1}"
 USE_HSDP="${USE_HSDP:-0}"
-VAE_PATCH_PARALLEL_SIZE="${VAE_PATCH_PARALLEL_SIZE:-4}"
+VAE_PATCH_PARALLEL_SIZE="${VAE_PATCH_PARALLEL_SIZE:-1}"
 VAE_USE_TILING="${VAE_USE_TILING:-1}"
 
 ARGS=(
@@ -48,9 +49,6 @@ fi
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export VLLM_OMNI_VIDEO_SYNC_TIMEOUT="${VLLM_OMNI_VIDEO_SYNC_TIMEOUT:-14400}"
-# Wan2.2 VAE convs hit MCDNN_STATUS_INVALID_VALUE on MetaX with cudnn on;
-# native torch conv fallback works (see cudnn_patch.py).
-export VLLM_OMNI_METAX_DISABLE_CUDNN=1
 
 if [[ ! -f "${MODEL}/model_index.json" ]]; then
     echo "error: checkpoint not found at ${MODEL}" >&2

@@ -90,14 +90,6 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply rope patch.", exc_info=True)
 
-    # 3.5. Optional cudnn toggle (MCDNN conv workaround for Wan2.2 VAE)
-    try:
-        from vllm_omni_metax.patches.cudnn_patch import apply_cudnn_patch
-
-        apply_cudnn_patch()
-    except Exception:
-        logger.warning("Failed to apply cudnn patch.", exc_info=True)
-
     # 4. Qwen3-TTS runtime patches (Code2Wav cudagraph / Triton SnakeBeta)
     try:
         from vllm_omni_metax.patches import apply_metax_qwen3_tts_runtime_patches
@@ -105,6 +97,14 @@ def _apply_metax_patches() -> None:
         apply_metax_qwen3_tts_runtime_patches()
     except Exception:
         logger.warning("Failed to apply qwen3-tts runtime patch.", exc_info=True)
+
+    # 4.5. Wan2.2 decode GPU-sync (avoids gray-noise / missing-channel output)
+    try:
+        from vllm_omni_metax.patches import apply_wan_sync_patch
+
+        apply_wan_sync_patch()
+    except Exception:
+        logger.warning("Failed to apply wan sync patch.", exc_info=True)
 
     # Deploy resolution patch may have been deferred because
     # config_factory was still initialising during platform detection.

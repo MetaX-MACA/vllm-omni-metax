@@ -45,16 +45,24 @@ negative_prompt / extra_params`。
 1. `patches/rope_patch.py`：修复 rotary shim 的 NameError /
    UnboundLocalError（原代码调用未定义的 `ext_apply_rotary_emb`，且 `ext_fn`
    是局部变量第二次调用即失效；改为模块级缓存 `_EXT_ROTARY_FN`）。
-2. `patches/cudnn_patch.py`（新增，`plugin.py` 注册）：Wan2.2 VAE 卷积在
-   MetaX 上报 `MCDNN_STATUS_INVALID_VALUE`，通过
-   `VLLM_OMNI_METAX_DISABLE_CUDNN=1` 关闭 cudnn、走 torch 原生卷积解决。
+2. `patches/wan_sync_patch.py`：Wan2.2 81 帧（21 latent 帧）输出偶发
+   灰噪/通道缺失/NaN 的根因是 vllm-omni 阶段流水线在 VAE decode 完成前
+   读取解码结果；在 `Wan22Pipeline.forward` 返回前强制 GPU sync 后，
+   连续多次 81 帧输出均与参考干净版一致（mean 0.200 / std 0.251）。
 
 > 上述补丁需要随 vllm-omni-metax 重新安装/同步到容器
 > （`pip install -e .` 或直接覆盖 site-packages 对应文件）后生效。
 
 ## 已知问题（WIP）
-
 - HSDP + USP4 配置下输出存在逐 latent 帧色带/红通道掉色问题（原因未定，
   怀疑序列并行路径）；当前用 TP4 规避。
-- TP4 输出颜色均衡、无拼接缝，但整体仍偏“低对比度 + 颗粒感”，
-  与官方 Wan2.2 仓库输出（明暗结构明显）有差距，仍在排查（采样/精度/CFG 方向）。
+- 81 帧（21 latent 帧）时，`--vae-patch-parallel-size 4` 的分布式 tile
+  解码会稳定出现「重复横条（80px 周期）+ 末尾几帧变绿」：同一份 latent
+  用单 rank（`vae-patch-parallel-size 1`）或 plain diffusers 解码均正常，
+  问题定位在 vllm-omni 多 rank tile 组装（pack/gather/unpack/merge）。
+  已默认改为 `vae-patch-parallel-size 1` 规避；分布式组装待修复。
+- 低步数（20 步）+ `flow_shift=5.0`（480p 应为 12.0）时，部分 seed 的
+  采样轨迹会坍缩成均匀灰帧（如 seed 65535 + 默认猫拳击 prompt）。
+  用 40 步 + `flow_shift=12.0` 后正常；冒烟默认值已改为 seed 12345。
+- 画面整体仍偏颗粒感（无平坦区域），与官方 Wan2.2 仓库输出有差距，
+  采样器/VAE 方向可继续优化。
