@@ -10,11 +10,13 @@ from vllm_omni_metax.patches.qwen3_tts_runtime_patch import (
 from vllm_omni_metax.patches.stream_patch import (
     use_current_stream_for_runner_init,
 )
+from vllm_omni_metax.patches.wan_sync_patch import apply_wan_sync_patch
 
 __all__ = [
     "apply_code_predictor_patch",
     "apply_deploy_resolution_patch",
     "apply_rope_patch",
     "apply_metax_qwen3_tts_runtime_patches",
+    "apply_wan_sync_patch",
     "use_current_stream_for_runner_init",
 ]
