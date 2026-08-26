@@ -90,6 +90,22 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply rope patch.", exc_info=True)
 
+    # 3.2. Clean partial-import stubs before optional-dependency probing
+    try:
+        from vllm_omni_metax.patches import apply_import_utils_patch
+
+        apply_import_utils_patch()
+    except Exception:
+        logger.warning("Failed to apply import_utils patch.", exc_info=True)
+
+    # 3.5. Optional cudnn toggle (MCDNN conv3d tile bug on C600U)
+    try:
+        from vllm_omni_metax.patches import apply_cudnn_patch
+
+        apply_cudnn_patch()
+    except Exception:
+        logger.warning("Failed to apply cudnn patch.", exc_info=True)
+
     # 4. Qwen3-TTS runtime patches (Code2Wav cudagraph / Triton SnakeBeta)
     try:
         from vllm_omni_metax.patches import apply_metax_qwen3_tts_runtime_patches

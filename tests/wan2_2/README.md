@@ -49,6 +49,11 @@ negative_prompt / extra_params`。
    灰噪/通道缺失/NaN 的根因是 vllm-omni 阶段流水线在 VAE decode 完成前
    读取解码结果；在 `Wan22Pipeline.forward` 返回前强制 GPU sync 后，
    连续多次 81 帧输出均与参考干净版一致（mean 0.200 / std 0.251）。
+3. `patches/cudnn_patch.py`：C600U（sdk3.8.2.8/torch2.8）上 MCDNN conv3d
+   对 VAE tiling 的小 tile（32x32）输入计算错误，导致输出边缘色彩模糊/
+   色差（tiling vs no-tiling 解码差异 0.63，C500 仅 0.002）。设置
+   `VLLM_OMNI_METAX_DISABLE_CUDNN=1` 走 torch 原生卷积后差异降至 0.0023，
+   边缘恢复正常。C500 不需要此开关。
 
 > 上述补丁需要随 vllm-omni-metax 重新安装/同步到容器
 > （`pip install -e .` 或直接覆盖 site-packages 对应文件）后生效。
