@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import logging
 
-from vllm_omni.platforms import current_omni_platform
-
 logger = logging.getLogger(__name__)
 
 _PATCHED = False
@@ -25,6 +23,7 @@ def apply_wan_sync_patch() -> None:
     if _PATCHED:
         return
 
+    from vllm_omni.platforms import current_omni_platform
     from vllm_omni.diffusion.models.wan2_2 import pipeline_wan2_2
 
     original_forward = pipeline_wan2_2.Wan22Pipeline.forward
