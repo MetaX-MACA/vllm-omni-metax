@@ -114,6 +114,22 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply qwen3-tts runtime patch.", exc_info=True)
 
+    # 4.5. Wan2.2 decode GPU-sync (avoids gray-noise / missing-channel output)
+    try:
+        from vllm_omni_metax.patches import apply_wan_sync_patch
+
+        apply_wan_sync_patch()
+    except Exception:
+        logger.warning("Failed to apply wan sync patch.", exc_info=True)
+
+    # 4.6. JoyAI-Image-Edit (vllm-omni PR #4112 backport + raw-layout adapter)
+    try:
+        from vllm_omni_metax.patches import apply_joy_image_patch
+
+        apply_joy_image_patch()
+    except Exception:
+        logger.warning("Failed to apply joy_image patch.", exc_info=True)
+
     # Deploy resolution patch may have been deferred because
     # config_factory was still initialising during platform detection.
     # Retry after a short delay so the import call stack can unwind.
