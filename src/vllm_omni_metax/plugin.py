@@ -130,6 +130,14 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply joy_image patch.", exc_info=True)
 
+    # 4.7. SDPA mask clamp (bf16 + finfo.min mask + scale>=1 turns attention into NaN)
+    try:
+        from vllm_omni_metax.patches import apply_sdpa_min_mask_patch
+
+        apply_sdpa_min_mask_patch()
+    except Exception:
+        logger.warning("Failed to apply sdpa mask clamp patch.", exc_info=True)
+
     # Deploy resolution patch may have been deferred because
     # config_factory was still initialising during platform detection.
     # Retry after a short delay so the import call stack can unwind.
