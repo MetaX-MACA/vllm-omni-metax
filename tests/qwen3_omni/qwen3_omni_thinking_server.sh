@@ -10,8 +10,8 @@
 # "0,1", talker/code2wav on "2") and add the thinking settings from the
 # builtin variant if the thinker stage does not fit one GPU.
 
+export VLLM_OMNI_METAX_QWEN3_OMNI_THINKER_ONLY=1
 vllm serve /external/ai/models/llm/Qwen/Qwen3-Omni-30B-A3B-Instruct/ \
     --omni \
     --trust-remote-code \
-    --enforce-eager \
     --deploy-config qwen3_omni_moe_thinking.yaml
