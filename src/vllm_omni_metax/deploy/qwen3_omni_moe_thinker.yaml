@@ -1,0 +1,49 @@
+# Qwen3-Omni-MoE thinker-only deploy (MetaX C500, 2 GPUs).
+#
+# Runs stage 0 (thinker) only: text output, no talker / code2wav stages, no
+# shared-memory connector and no audio.  Only the thinker weights are loaded,
+# so the MetaX layout drops from 3 GPUs (thinker TP=2 + talker/code2wav) to 2.
+#
+# IMPORTANT: vllm-omni picks the pipeline variant from the HF config, not from
+# this file.  The served checkpoint must disable audio output:
+#
+#     "enable_audio_output": false        # in the model's config.json
+#
+# With that flag the registry resolver (pipeline_registry key
+# `qwen3_omni_moe` -> resolve_qwen3_omni_pipeline) returns the single-stage
+# `qwen3_omni_moe_thinker_only` pipeline.  If the checkpoint cannot be edited,
+# serve an overlay directory that symlinks the checkpoint and ships a patched
+# config.json (see docs), or use a thinker-only checkpoint (e.g. the
+# Captioner variant) which already sets the flag.
+#
+# Do NOT add a top-level `pipeline:` key here: the registry value for
+# `qwen3_omni_moe` is the resolver callable, and letting it decide is exactly
+# what selects the thinker-only variant.  Other keys are either not registered
+# (`qwen3_omni_moe_thinker_only` is not an OMNI_PIPELINES key) or would force
+# the 3-stage pipeline.
+#
+# Usage:
+#   CUDA_VISIBLE_DEVICES=0,1 vllm serve <Qwen3-Omni-...-Instruct> \
+#     --omni \
+#     --trust-remote-code \
+#     --deploy-config src/vllm_omni_metax/deploy/qwen3_omni_moe_thinker.yaml
+#
+# Stage 0 mirrors the MetaX-verified profile of qwen3_omni_moe.yaml (TP=2 on
+# devices "0,1", CUDA graphs left enabled).  The `maca` eager override in that
+# file only exists for the code2wav stage, which is not instantiated here.
+# For a thinking checkpoint you may prefer the builtin sampling defaults of
+# vllm_omni/deploy/qwen3_omni_moe_thinking.yaml (temperature 0.4, top_p 0.9,
+# top_k 1, repetition_penalty 1.05, seed 42).
+
+stages:
+  - stage_id: 0
+    max_num_batched_tokens: 32768
+    max_num_seqs: 64
+    gpu_memory_utilization: 0.9
+    tensor_parallel_size: 2
+    trust_remote_code: true
+    enable_prefix_caching: false
+    devices: "0,1"
+    default_sampling_params:
+      temperature: 0.0
+      max_tokens: 2048
