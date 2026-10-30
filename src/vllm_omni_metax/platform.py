@@ -187,6 +187,29 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
         torch.cuda.synchronize()
 
     @classmethod
+    def record_device_event(cls):
+        """Mark diffusion outputs ready for the background D2H stream.
+
+        WorkerProc calls this on the producer thread, then makes its D2H
+        stream wait for the returned event before reading output tensors.
+        Override OmniPlatform's default None result: without an event, that
+        wait is skipped and the copy can race with unfinished GPU writes.
+        """
+        try:
+            # MACA exposes device events through the torch.cuda API. Record
+            # on the producer's current stream, before handing off outputs.
+            event = torch.cuda.Event()
+            event.record(torch.cuda.current_stream())
+            return event
+        except Exception:
+            # The caller skips its event wait when we return None. Finish
+            # device work first so this fallback cannot read partial output.
+            # Let synchronization errors propagate rather than copy unsafely.
+            logger.warning("MetaX output event unavailable; synchronizing device", exc_info=True)
+            cls.synchronize()
+            return None
+
+    @classmethod
     def get_free_memory(cls, device: torch.device | None = None) -> int:
         free, _ = torch.cuda.mem_get_info(device)
         return int(free)
