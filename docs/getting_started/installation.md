@@ -6,7 +6,7 @@ MetaX runtime first, then install the Omni-side adapter on top.
 ## Requirements
 
 - OS: Linux
-- Python: 3.10 -- 3.12
+- Python: 3.12
 - Hardware: MetaX C-series GPU
 - SDK: MACA runtime correctly installed
 - System tools: `ffmpeg` / `ffprobe` on `PATH` (required by diffusion-model
@@ -19,7 +19,7 @@ MetaX runtime first, then install the Omni-side adapter on top.
 
 `vllm-omni-metax` is a thin Python plugin. It does not ship extra kernels by
 itself and therefore depends on a healthy `vllm-metax` installation. In the
-`0.26.0` release line it ships runtime patches for:
+`0.32.0` release line it ships runtime patches for:
 
 - the Omni rotary embedding import path that otherwise assumes CUDA-only
   flash-attn bindings (`vllm.vllm_flash_attn.layers.rotary` shim)
@@ -31,9 +31,7 @@ itself and therefore depends on a healthy `vllm-metax` installation. In the
   builtin `vllm_omni/deploy/`)
 
 Python-side runtime dependencies are listed in `requirements/common.txt`,
-including `cache-dit==1.3.0`: `vllm-omni` 0.26 diffusion pipelines
-(MiniMax-H3 among them) import `cache_dit`, but MetaX runtime wheels do not
-pull it in, so it must be installed explicitly.
+including `cache-dit==1.5.0`, the version required by vLLM-Omni 0.32.0.
 
 ### System dependencies (ffmpeg / ffprobe)
 
@@ -54,12 +52,12 @@ The MiniMax-H3 test suite ships a helper that performs both steps:
 
 For this repository revision:
 
-- `vllm-omni-metax`: `0.26.0`
-- `vllm-omni`: `0.26.0`
-- `vllm_metax`: `0.26.0`
+- `vllm`, `vllm-omni`, `vllm-metax`, and `vllm-omni-metax`: `0.32.0`
+- MetaX validation environment: MACA `3.9.0.29`, PyTorch `2.10.0+metax3.9.0.8`
+- Development snapshot for the base plugin:
+  [vLLM-metax `0962c873`](https://github.com/MetaX-MACA/vLLM-metax/tree/0962c8735ffe4795800030680311410848512b82)
 
-When in doubt, keep the three components aligned to the same release train used
-by your MetaX environment or Docker image.
+Keep these packages aligned with the release train of your MetaX environment or Docker image.
 
 ## Prepare the MetaX environment
 
@@ -94,14 +92,15 @@ For the detailed backend-side build flow, refer to the
 ## Install `vllm-omni`
 
 Install `vllm-omni` in the same Python environment that already contains
-`vllm-metax`. The `0.26.0` line is built from source on top of the matching
-vLLM release (vllm-omni does not compile vLLM itself):
+`vllm-metax` and its matching vLLM 0.32.0 build. Build Omni from the
+`v0.32.0` source tag. The CPU dependency profile selects portable Python
+dependencies for the build. The MetaX plugin selects the GPU runtime.
 
 ```bash
-uv pip install vllm==0.26.0          # vLLM first; drives vllm-omni's deps
-git clone https://github.com/vllm-project/vllm-omni.git -b v0.26.0
+python -m pip install 'setuptools>=77.0.3,<81' 'setuptools-scm>=8' wheel
+git clone --branch v0.32.0 https://github.com/vllm-project/vllm-omni.git
 cd vllm-omni
-uv pip install -e .
+VLLM_OMNI_TARGET_DEVICE=cpu python -m pip install --no-build-isolation -e .
 ```
 
 Install order matters: `vllm-metax` before `vllm-omni` (vllm-omni's setup
@@ -113,19 +112,16 @@ package.
 
 ## Install `vllm-omni-metax`
 
-Clone this repository and install it into the same environment:
+Source the MetaX environment so the setup script can read the installed
+MetaX PyTorch and MACA SDK versions. Clone this repository and install it
+into the same environment:
 
 ```bash
 git clone https://github.com/MetaX-MACA/vllm-omni-metax.git
 cd vllm-omni-metax
 git checkout the/your/choice/branch
 pip install -e .
-```
-
-If you use `uv`, the equivalent command is:
-
-```bash
-uv pip install -e .
+python -m pip check
 ```
 
 Because this package is only an adapter layer, editable mode is the recommended
