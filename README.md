@@ -44,12 +44,12 @@ pip install -e .
 
 ## Compatibility
 
-The current documentation and adaptation target the `0.26.0` stack:
+The current documentation and adaptation target the `0.32.0` stack:
 
-- `vllm-omni-metax 0.26.0`
-- `vllm-omni 0.26.0`
-- `vllm-metax 0.26.0` (MACA 3.8.2.x placeholder — confirm against the
-  vllm-metax release table before shipping)
+- `vllm-omni-metax 0.32.0`
+- `vllm-omni 0.32.0`
+- `vllm-metax 0.32.0` (with the matching `vllm 0.32.0` build, MACA 3.9,
+  and MetaX PyTorch)
 
 See [docs/getting_started/installation.md](docs/getting_started/installation.md)
 for the full setup flow and runtime patch notes.

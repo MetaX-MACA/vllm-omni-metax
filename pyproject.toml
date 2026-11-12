@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # 2026 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,8 +13,8 @@ authors = [
   { name = "Metax Team"}
 ]
 dependencies = [
-  "vllm-omni==0.26.0",
-  "vllm_metax==0.26.0",
+  "vllm-omni==0.32.0",
+  "vllm_metax==0.32.0",
 ]
 dynamic = ["version"]
 
