@@ -2,10 +2,10 @@
 # 2026 - Modified by MetaX Integrated Circuits (Shanghai) Co., Ltd. All Rights Reserved.
 """Monkey-patch deploy YAML resolution so the plugin can ship its own deploy configs.
 
-vllm-omni 0.26 resolves deploy YAMLs through
+vllm-omni 0.32 resolves deploy YAMLs through
 ``vllm_omni.config.config_factory.StageConfigFactory``:
 - ``create_from_model`` — structured ``VllmOmniConfig`` path
-- ``create_legacy_stage_configs_from_model`` — current runtime legacy path
+- ``create_legacy_stage_configs_from_model`` — legacy compatibility path
 
 Both receive ``deploy_config_path``, which is ``None`` when the user did not
 pass ``--deploy-config`` (see ``vllm_omni/entrypoints/utils.py``).
@@ -13,15 +13,10 @@ This patch inserts the plugin's deploy directory ahead of the builtin
 ``vllm_omni/deploy/`` by resolving a plugin YAML for the model when
 ``deploy_config_path is None``.
 
-**Deferred installation.**  During platform plugin loading the
-``vllm_omni.config.config_factory`` module may still be initialising, which
-makes a direct ``from ... import StageConfigFactory`` trigger a circular
-import.  We therefore look up ``StageConfigFactory`` via ``sys.modules`` and
-install the real monkey-patch only once the class is fully available.  If
-the class is not yet available when ``apply_deploy_resolution_patch()``
-runs, the patch is retried on the first worker-cls getter call (via
-``MetaxOmniPlatform._ensure_deploy_patch``), i.e. at stage-engine init time,
-when the module is guaranteed to be fully loaded.
+**Deferred installation.**  Omni 0.32 loads the factory lazily, so its
+module can be absent or still initialising when the MetaX platform plugin
+activates. We look for the class in ``sys.modules`` and defer installation
+to the existing retry hooks if the class is not yet available.
 """
 from __future__ import annotations
 
@@ -49,20 +44,14 @@ _orig_create_legacy = None
 def _get_stage_config_factory():
     """Return StageConfigFactory without triggering a fresh import.
 
-    Uses ``sys.modules`` to avoid the circular import that occurs when
-    ``from vllm_omni.config.config_factory import StageConfigFactory`` is
-    executed while the module is still being initialised.
+    Importing the factory here can reach the diffusion registry, which
+    resolves ``current_omni_platform`` while the MetaX plugin is still
+    activating. If a retry from that nested activation installs the patch
+    before the import returns, the outer installer can save the wrapper
+    as the original method and cause recursion.
     """
     mod = sys.modules.get("vllm_omni.config.config_factory")
-    if mod is not None:
-        return getattr(mod, "StageConfigFactory", None)
-    # Module not yet imported at all — safe to import normally.
-    try:
-        from vllm_omni.config.config_factory import StageConfigFactory
-
-        return StageConfigFactory
-    except ImportError:
-        return None
+    return getattr(mod, "StageConfigFactory", None)
 
 
 def _resolve_plugin_deploy_path(
@@ -135,7 +124,8 @@ def _install_factory_patch() -> bool:
 
     @classmethod
     def _patched_create_from_model(cls, model, *, trust_remote_code,
-                                   cli_overrides, deploy_config_path):
+                                   cli_overrides, deploy_config_path,
+                                   strategy_specs=None):
         deploy_config_path = _resolve_plugin_deploy_path(
             cls, model, trust_remote_code, deploy_config_path)
         return _orig_create_from_model(
@@ -143,6 +133,7 @@ def _install_factory_patch() -> bool:
             trust_remote_code=trust_remote_code,
             cli_overrides=cli_overrides,
             deploy_config_path=deploy_config_path,
+            strategy_specs=strategy_specs,
         )
 
     @classmethod
