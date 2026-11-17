@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+from importlib.metadata import version
 
 import torch
+from packaging.version import InvalidVersion, Version
 from vllm.logger import init_logger
 from vllm.platforms.interface import DeviceCapability
 from vllm_metax.platform import MacaPlatform
@@ -64,7 +66,16 @@ class MetaxOmniPlatform(OmniPlatform, MacaPlatform):
 
     @classmethod
     def has_flash_attn_package(cls) -> bool:
-        return False
+        try:
+            wheel_version = Version(version("flash-attn"))
+            if not (wheel_version.local or "").startswith("metax"):
+                return False
+
+            from flash_attn import flash_attn_func, flash_attn_varlen_func
+
+            return callable(flash_attn_func) and callable(flash_attn_varlen_func)
+        except (ImportError, InvalidVersion, OSError, RuntimeError):
+            return False
 
     @classmethod
     def get_diffusion_attn_backend_cls(
