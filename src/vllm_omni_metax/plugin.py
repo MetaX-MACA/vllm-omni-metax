@@ -82,13 +82,6 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply code_predictor patch.", exc_info=True)
 
-    # 3. RoPE fallback shim (vllm.vllm_flash_attn.layers.rotary)
-    try:
-        from vllm_omni_metax.patches import apply_rope_patch
-
-        apply_rope_patch()
-    except Exception:
-        logger.warning("Failed to apply rope patch.", exc_info=True)
 
     # 3.2. Clean partial-import stubs before optional-dependency probing
     try:
@@ -137,14 +130,6 @@ def _apply_metax_patches() -> None:
         apply_sdpa_min_mask_patch()
     except Exception:
         logger.warning("Failed to apply sdpa mask clamp patch.", exc_info=True)
-
-    # 4.8. Qwen3-Omni thinker-only (opt-in: skip talker/code2wav, text output)
-    try:
-        from vllm_omni_metax.patches import apply_qwen3_omni_thinker_only_patch
-
-        apply_qwen3_omni_thinker_only_patch()
-    except Exception:
-        logger.warning("Failed to apply qwen3-omni thinker-only patch.", exc_info=True)
 
     # Deploy resolution patch may have been deferred because
     # config_factory was still initialising during platform detection.
