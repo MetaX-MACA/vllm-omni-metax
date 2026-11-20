@@ -99,6 +99,13 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply cudnn patch.", exc_info=True)
 
+    try:
+        from vllm_omni_metax.patches import apply_qwen3_omni_thinker_capture_patch
+
+        apply_qwen3_omni_thinker_capture_patch()
+    except Exception:
+        logger.warning("Failed to qwen3-omni thinker capture patch.", exc_info=True)
+
     # 4. Qwen3-TTS runtime patches (Code2Wav cudagraph / Triton SnakeBeta)
     try:
         from vllm_omni_metax.patches import apply_metax_qwen3_tts_runtime_patches
@@ -114,6 +121,17 @@ def _apply_metax_patches() -> None:
         apply_wan_sync_patch()
     except Exception:
         logger.warning("Failed to apply wan sync patch.", exc_info=True)
+
+    # 4.5b. MiniMax-H3 decode GPU-sync (same async VAE-decode race; the 0.28
+    #       video-output fast path returns quantized frames before the GPU
+    #       decode has finished, producing gray/noise video with clean audio).
+    try:
+        from vllm_omni_metax.patches import apply_h3_sync_patch
+
+        apply_h3_sync_patch()
+    except Exception:
+        logger.warning("Failed to apply minimax-h3 sync patch.", exc_info=True)
+
 
     # 4.6. JoyAI-Image-Edit (vllm-omni PR #4112 backport + raw-layout adapter)
     try:
