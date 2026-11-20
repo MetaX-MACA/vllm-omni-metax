@@ -147,7 +147,7 @@ def apply_sdpa_min_mask_patch() -> None:
     def sdpa_attention_forward(*args, **kwargs):
         # (module, query, key, value, attention_mask, ...); support both call styles.
         query = args[1] if len(args) > 1 else kwargs.get("query")
-        scale = args[5] if len(args) > 5 else kwargs.get("scaling")
+        scale = args[6] if len(args) > 6 else kwargs.get("scaling")
         if scale is None and torch.is_tensor(query):
             scale = query.shape[-1] ** -0.5
         # Below 1.0 the MetaX kernels handle finfo.min masks correctly, so the

@@ -24,28 +24,31 @@ def _patched_attention_forward(
     hidden_states: torch.Tensor,
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
 ) -> torch.Tensor:
-    """Patched CodePredictorAttention.forward with dtype cast before o_proj.
+    from vllm_omni.platforms import current_omni_platform
 
-    On MetaX hardware, F.scaled_dot_product_attention can return a tensor
-    whose dtype differs from o_proj.weight.dtype, causing a runtime error.
-    """
     bsz, seq_len, _ = hidden_states.shape
     hidden_shape_q = (bsz, seq_len, self.num_heads, self.head_dim)
     hidden_shape_kv = (bsz, seq_len, self.num_kv_heads, self.head_dim)
 
-    q = self.q_norm(self.q_proj(hidden_states).view(hidden_shape_q)).transpose(1, 2)
-    k = self.k_norm(self.k_proj(hidden_states).view(hidden_shape_kv)).transpose(1, 2)
-    v = self.v_proj(hidden_states).view(hidden_shape_kv).transpose(1, 2)
-
-    from vllm_omni.platforms import current_omni_platform
+    qkv = self.qkv_proj(hidden_states)
+    q_raw, k_raw, v_raw = self._split_qkv(qkv)
+    q = self.q_norm(q_raw.view(hidden_shape_q)).transpose(1, 2)
+    k = self.k_norm(k_raw.view(hidden_shape_kv)).transpose(1, 2)
+    v = v_raw.view(hidden_shape_kv).transpose(1, 2)
 
     cos, sin = position_embeddings
     cos = cos.unsqueeze(1)
     sin = sin.unsqueeze(1)
-    q = (q * cos) + (_rotate_half(q) * sin)
-    k = (k * cos) + (_rotate_half(k) * sin)
 
-    if not current_omni_platform.is_npu():
+    if current_omni_platform.is_npu():
+        import torch_npu
+
+        q = torch_npu.npu_rotary_mul(q, cos, sin)
+        k = torch_npu.npu_rotary_mul(k, cos, sin)
+        attn_out = self._forward_npu_attention(q, k, v, bsz, seq_len)
+    else:
+        q = (q * cos) + (_rotate_half(q) * sin)
+        k = (k * cos) + (_rotate_half(k) * sin)
         attn_out = F.scaled_dot_product_attention(
             q,
             k,
@@ -54,8 +57,6 @@ def _patched_attention_forward(
             is_causal=True,
             enable_gqa=self.is_gqa,
         )
-    else:
-        attn_out = self._forward_npu_attention(q, k, v, bsz, seq_len)
 
     attn_out = attn_out.transpose(1, 2).reshape(bsz, seq_len, -1)
     # /------------------------  Metax Modification -------------------------\

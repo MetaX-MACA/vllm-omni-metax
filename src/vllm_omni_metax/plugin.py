@@ -82,13 +82,6 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply code_predictor patch.", exc_info=True)
 
-    # 3. RoPE fallback shim (vllm.vllm_flash_attn.layers.rotary)
-    try:
-        from vllm_omni_metax.patches import apply_rope_patch
-
-        apply_rope_patch()
-    except Exception:
-        logger.warning("Failed to apply rope patch.", exc_info=True)
 
     # 3.2. Clean partial-import stubs before optional-dependency probing
     try:
@@ -106,6 +99,13 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply cudnn patch.", exc_info=True)
 
+    try:
+        from vllm_omni_metax.patches import apply_qwen3_omni_thinker_capture_patch
+
+        apply_qwen3_omni_thinker_capture_patch()
+    except Exception:
+        logger.warning("Failed to qwen3-omni thinker capture patch.", exc_info=True)
+
     # 4. Qwen3-TTS runtime patches (Code2Wav cudagraph / Triton SnakeBeta)
     try:
         from vllm_omni_metax.patches import apply_metax_qwen3_tts_runtime_patches
@@ -122,6 +122,17 @@ def _apply_metax_patches() -> None:
     except Exception:
         logger.warning("Failed to apply wan sync patch.", exc_info=True)
 
+    # 4.5b. MiniMax-H3 decode GPU-sync (same async VAE-decode race; the 0.28
+    #       video-output fast path returns quantized frames before the GPU
+    #       decode has finished, producing gray/noise video with clean audio).
+    try:
+        from vllm_omni_metax.patches import apply_h3_sync_patch
+
+        apply_h3_sync_patch()
+    except Exception:
+        logger.warning("Failed to apply minimax-h3 sync patch.", exc_info=True)
+
+
     # 4.6. JoyAI-Image-Edit (vllm-omni PR #4112 backport + raw-layout adapter)
     try:
         from vllm_omni_metax.patches import apply_joy_image_patch
@@ -137,14 +148,6 @@ def _apply_metax_patches() -> None:
         apply_sdpa_min_mask_patch()
     except Exception:
         logger.warning("Failed to apply sdpa mask clamp patch.", exc_info=True)
-
-    # 4.8. Qwen3-Omni thinker-only (opt-in: skip talker/code2wav, text output)
-    try:
-        from vllm_omni_metax.patches import apply_qwen3_omni_thinker_only_patch
-
-        apply_qwen3_omni_thinker_only_patch()
-    except Exception:
-        logger.warning("Failed to apply qwen3-omni thinker-only patch.", exc_info=True)
 
     # Deploy resolution patch may have been deferred because
     # config_factory was still initialising during platform detection.

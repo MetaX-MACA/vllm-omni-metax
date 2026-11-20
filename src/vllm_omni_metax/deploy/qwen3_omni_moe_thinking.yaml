@@ -34,6 +34,7 @@
 # For a thinking checkpoint you may prefer the builtin sampling defaults of
 # vllm_omni/deploy/qwen3_omni_moe_thinking.yaml (temperature 0.4, top_p 0.9,
 # top_k 1, repetition_penalty 1.05, seed 42).
+pipeline: qwen3_omni_moe_thinker_only
 
 stages:
   - stage_id: 0
