@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from types import FunctionType
+
+import torch
+
 import os
 import threading
 from vllm.logger import init_logger
@@ -236,6 +240,84 @@ def _patch_qwen3_tts_speaker_cache_ref_audio_guard(_retries: int = 5) -> None:
     logger.warning("MetaX: patched Qwen3-TTS speaker cache with ref_audio guard.")
 
 
+class _TorchCatProxy:
+    def __init__(self, original_torch):
+        self._torch = original_torch
+
+    def __getattr__(self, name):
+        return getattr(self._torch, name)
+
+    def cat(self, tensors, dim=0, *, out=None):
+        if out is not None:
+            return self._torch.cat(tensors, dim=dim, out=out)
+
+        if not isinstance(tensors, (list, tuple)) or len(tensors) != 2:
+            return self._torch.cat(tensors, dim=dim)
+
+        a, b = tensors
+
+        if not isinstance(a, torch.Tensor) or not isinstance(b, torch.Tensor):
+            return self._torch.cat(tensors, dim=dim)
+
+        if (
+            a.ndim != 3
+            or b.ndim != 3
+            or dim % 3 != 2
+            or a.shape[:-1] != b.shape[:-1]
+            or a.dtype != b.dtype
+            or a.device != b.device
+        ):
+            return self._torch.cat(tensors, dim=dim)
+
+        shape = (*a.shape[:-1], a.shape[-1] + b.shape[-1])
+        result = a.new_empty(shape)
+
+        if a.numel():
+            result[..., :a.shape[-1]].copy_(a)
+
+        if b.numel():
+            result[..., a.shape[-1]:].copy_(b)
+
+        return result
+
+
+def _patch_qwen3_tts_cat() -> None:
+    from vllm_omni.model_executor.models.qwen3_tts.tokenizer_12hz.modeling_qwen3_tts_tokenizer_v2 import (
+        Qwen3TTSTokenizerV2Decoder,
+    )
+
+    cls = Qwen3TTSTokenizerV2Decoder
+    original = cls._decode_suffix
+
+    if getattr(original, "_metax_cat_patched", False):
+        return
+
+    patched_globals = dict(original.__globals__)
+    patched_globals["torch"] = _TorchCatProxy(torch)
+
+    patched = FunctionType(
+        original.__code__,
+        patched_globals,
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+    patched.__kwdefaults__ = original.__kwdefaults__
+    patched.__annotations__ = dict(original.__annotations__)
+    patched.__qualname__ = original.__qualname__
+    patched.__module__ = original.__module__
+    patched.__dict__.update(original.__dict__)
+    patched.__wrapped__ = original
+    patched._metax_cat_patched = True
+
+    cls._decode_suffix = patched
+
+    logger.warning(
+        "MetaX: Qwen3-TTS decoder _decode_suffix uses copy-based "
+        "3D last-dimension concatenation."
+    )
+
+
 def apply_metax_qwen3_tts_runtime_patches() -> None:
     global _PATCHED
     if _PATCHED:
@@ -245,5 +327,6 @@ def apply_metax_qwen3_tts_runtime_patches() -> None:
     _patch_snakebeta_triton()
     _patch_qwen3_tts_base_task_guard()
     _patch_qwen3_tts_speaker_cache_ref_audio_guard()
+    _patch_qwen3_tts_cat()
 
     _PATCHED = True

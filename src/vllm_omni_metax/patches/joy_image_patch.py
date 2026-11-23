@@ -3,7 +3,7 @@
 """JoyAI-Image-Edit out-of-tree model integration.
 
 Ships the JoyAI-Image-Edit diffusion pipeline (upstream PR #4112) alongside
-the MetaX omni plugin, because the installed core ``vllm_omni`` (v0.26.0) does
+the MetaX omni plugin, because the installed core ``vllm_omni`` (v0.30.0) does
 not yet contain it.  At plugin-activation time the vendored ``joy_image``
 source files are written into the installed
 ``vllm_omni/diffusion/models/joy_image/`` package directory, and the pipeline
@@ -27,7 +27,6 @@ tables.
 """
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 import shutil
@@ -41,6 +40,8 @@ _QWEN3_VL_REGISTERED = False
 _FILES_INSTALLED = False
 _MAX_RETRIES = 600
 _RETRY_COUNT = 0
+_REGISTER_LOCK = threading.RLock()
+_RETRY_TIMER = None
 
 _VENDORED_FILES = (
     "__init__.py",
@@ -127,22 +128,14 @@ def _register_pipeline() -> None:
 
 
 def _patch_text_encoder_cache() -> None:
-    """Force ``use_cache=False`` for the JoyAI Qwen3-VL conditioning pass.
-
-    ``JoyAI-Image-Und`` ships with ``use_cache=true`` in its config, and the
-    upstream pipeline's ``_get_last_layer_pre_norm_hidden`` runs a full
-    ``Qwen3VLForConditionalGeneration`` forward to capture the last-layer
-    pre-norm hidden states.  On transformers 5.14 (installed in the MetaX
-    image) the generated KV cache crashes with
-    ``IndexError: Dimension out of range ... in DynamicCache.update``.
-    The conditioning pass only needs hidden states, never the cache, so we
-    force it off.
-    """
+    """Force use_cache=False for the JoyAI Qwen3-VL conditioning pass."""
     from vllm_omni.diffusion.models.joy_image.pipeline_joy_image_edit import (
         JoyImageEditPipeline,
     )
 
     original_get_hidden = JoyImageEditPipeline._get_last_layer_pre_norm_hidden
+    if getattr(original_get_hidden, "_metax_joyai_no_cache", False):
+        return
 
     def get_hidden_no_cache(self, model_inputs):
         input_items = getattr(model_inputs, "items", None)
@@ -153,31 +146,29 @@ def _patch_text_encoder_cache() -> None:
         text_encoder_inputs["use_cache"] = False
         return original_get_hidden(self, text_encoder_inputs)
 
+    get_hidden_no_cache._metax_joyai_no_cache = True
     JoyImageEditPipeline._get_last_layer_pre_norm_hidden = get_hidden_no_cache
     logger.info("joy_image: Qwen3-VL conditioning pass forced to use_cache=False.")
 
 
 def _patch_decode_gpu_sync() -> None:
-    """Force a device sync after JoyAI forward (VAE decode) on MetaX.
-
-    Same root cause as ``wan_sync_patch``: the omni stage can read the VAE
-    decode result before the GPU work is finished on the MetaX stack, which
-    corrupts the output (banding / partial channels).  Syncing right after
-    ``JoyImageEditPipeline.forward`` makes the output deterministic.
-    """
+    """Synchronize after the JoyAI pipeline forward pass on MetaX."""
     from vllm_omni.diffusion.models.joy_image.pipeline_joy_image_edit import (
         JoyImageEditPipeline,
     )
 
     original_forward = JoyImageEditPipeline.forward
+    if getattr(original_forward, "_metax_joyai_sync", False):
+        return
 
     def forward_with_sync(self, req, **kwargs):
-        from vllm_omni.platforms import current_omni_platform  # lazy import
+        from vllm_omni.platforms import current_omni_platform
 
         output = original_forward(self, req, **kwargs)
         current_omni_platform.synchronize()
         return output
 
+    forward_with_sync._metax_joyai_sync = True
     JoyImageEditPipeline.forward = forward_with_sync
     logger.info("joy_image: JoyImageEditPipeline.forward wrapped with post-decode GPU sync.")
 
@@ -242,114 +233,121 @@ def _patch_raw_layout_support() -> None:
         resolve_model_path,
     )
 
-    # 1. Server-side class resolution: raw layout -> JoyImageEditPipeline.
     original_resolve = diffusion_data.resolve_model_class_name
+    if getattr(original_resolve, "_metax_joyai_resolve", False):
+        resolve_with_joyai = original_resolve
+        original_resolve = resolve_with_joyai._metax_joyai_original_resolve
+    else:
+        def resolve_with_joyai(model, diffusion_load_format="default", revision=None):
+            if is_raw_joyai_layout(model):
+                return _MODEL_ARCH
+            return original_resolve(model, diffusion_load_format, revision)
 
-    def resolve_with_joyai(model, diffusion_load_format="default"):
-        if is_raw_joyai_layout(model):
-            return _MODEL_ARCH
-        return original_resolve(model, diffusion_load_format)
+        resolve_with_joyai._metax_joyai_resolve = True
+        resolve_with_joyai._metax_joyai_original_resolve = original_resolve
+        diffusion_data.resolve_model_class_name = resolve_with_joyai
 
-    diffusion_data.resolve_model_class_name = resolve_with_joyai
+    resolver = sys.modules.get("vllm_omni.config.resolver")
+    if (
+        resolver is not None
+        and getattr(resolver, "resolve_model_class_name", None) is original_resolve
+    ):
+        resolver.resolve_model_class_name = resolve_with_joyai
 
-    # 2. Worker-side enrich_config: point self.model at the mirror so
-    #    model_index.json / _class_name / metadata resolution all work.
     original_enrich = diffusion_data.OmniDiffusionConfig.enrich_config
+    if not getattr(original_enrich, "_metax_joyai_enrich", False):
+        def enrich_with_joyai(self):
+            model = getattr(self, "model", None)
+            if model:
+                self.model = resolve_model_path(model)
+            return original_enrich(self)
 
-    def enrich_with_joyai(self):
-        model = getattr(self, "model", None)
-        if model:
-            self.model = resolve_model_path(model)
-        return original_enrich(self)
+        enrich_with_joyai._metax_joyai_enrich = True
+        diffusion_data.OmniDiffusionConfig.enrich_config = enrich_with_joyai
 
-    diffusion_data.OmniDiffusionConfig.enrich_config = enrich_with_joyai
-
-    # 3. Direct-construction fallback inside the pipeline itself.
     original_init = JoyImageEditPipeline.__init__
+    if not getattr(original_init, "_metax_joyai_init", False):
+        def init_with_joyai(self, *, od_config, prefix=""):
+            model = getattr(od_config, "model", None)
+            if model:
+                od_config.model = resolve_model_path(model)
+            return original_init(self, od_config=od_config, prefix=prefix)
 
-    def init_with_joyai(self, *, od_config, prefix=""):
-        model = getattr(od_config, "model", None)
-        if model:
-            od_config.model = resolve_model_path(model)
-        return original_init(self, od_config=od_config, prefix=prefix)
-
-    JoyImageEditPipeline.__init__ = init_with_joyai
-
-    # 4. Engine-side stage-config resolution reads the model root config.json;
-    #    for the raw JoyAI checkpoint that file has no model_type/model_index,
-    #    so resolve the model to the Diffusers mirror before resolving configs.
-    try:
-        from vllm_omni.entrypoints import utils as entrypoint_utils
-
-        original_resolve_config_path = entrypoint_utils.resolve_model_config_path
-
-        def resolve_config_path_with_joyai(model):
-            resolved = resolve_model_path(model)
-            return original_resolve_config_path(resolved)
-
-        entrypoint_utils.resolve_model_config_path = resolve_config_path_with_joyai
-    except Exception:
-        logger.warning(
-            "joy_image: could not patch resolve_model_config_path; "
-            "serving the raw checkpoint may fail.",
-            exc_info=True,
-        )
-    logger.info("joy_image: raw checkpoint -> Diffusers mirror resolution hooks installed.")
+        init_with_joyai._metax_joyai_init = True
+        JoyImageEditPipeline.__init__ = init_with_joyai
 
 
 def _register_with_retry() -> None:
-    global _REGISTERED, _RETRY_COUNT
-    if _REGISTERED:
-        return
+    global _REGISTERED, _QWEN3_VL_REGISTERED
+    with _REGISTER_LOCK:
+        if _REGISTERED:
+            return
 
-    # Part 1: qwen3_vl omni pipeline (pure LLM stage). Needed even when no
-    # diffusion module is ever imported (e.g. serving JoyAI-Image-Und alone).
-    if not _QWEN3_VL_REGISTERED:
-        if not _pipeline_registry_settled():
+        if not _QWEN3_VL_REGISTERED:
+            pipeline_registry = sys.modules.get("vllm_omni.config.pipeline_registry")
+            if not _pipeline_registry_settled() or not callable(
+                getattr(pipeline_registry, "register_pipeline", None)
+            ):
+                _retry_register()
+                return
+            try:
+                _register_qwen3_vl_pipeline()
+                _QWEN3_VL_REGISTERED = True
+            except Exception:
+                logger.warning(
+                    "joy_image: qwen3_vl pipeline registration failed; will retry.",
+                    exc_info=True,
+                )
+                _retry_register()
+                return
+
+        diffusion_registry = sys.modules.get("vllm_omni.diffusion.registry")
+        if not _diffusion_registry_settled() or not hasattr(
+            diffusion_registry, "DiffusionModelRegistry"
+        ):
             _retry_register()
             return
+
         try:
-            _register_qwen3_vl_pipeline()
-            globals()["_QWEN3_VL_REGISTERED"] = True
+            _register_pipeline()
+            _patch_text_encoder_cache()
+            _patch_decode_gpu_sync()
+            _patch_raw_layout_support()
         except Exception:
             logger.warning(
-                "joy_image: qwen3_vl pipeline registration failed; will retry.",
+                "joy_image patch: registration attempt failed; will retry.",
                 exc_info=True,
             )
             _retry_register()
             return
 
-    # Part 2: JoyAI diffusion pipeline registration + MetaX runtime fixes.
-    if not _diffusion_registry_settled():
-        _retry_register()
-        return
-
-    try:
-        _register_pipeline()
-        _patch_text_encoder_cache()
-        _patch_decode_gpu_sync()
-        _patch_raw_layout_support()
-    except Exception:
-        logger.warning(
-            "joy_image patch: registration attempt failed; will retry.",
-            exc_info=True,
-        )
-        _retry_register()
-        return
-    _REGISTERED = True
-    logger.info("JoyAI-Image-Edit pipeline registered via vllm-omni-metax.")
+        _REGISTERED = True
+        logger.info("JoyAI-Image-Edit pipeline registered via vllm-omni-metax.")
 
 
 def _retry_register() -> None:
-    global _RETRY_COUNT
-    if _RETRY_COUNT < _MAX_RETRIES:
+    global _RETRY_COUNT, _RETRY_TIMER
+    with _REGISTER_LOCK:
+        if _REGISTERED or _RETRY_TIMER is not None:
+            return
+        if _RETRY_COUNT >= _MAX_RETRIES:
+            logger.error(
+                "joy_image patch: vllm_omni never became ready after %d retries.",
+                _MAX_RETRIES,
+            )
+            return
         _RETRY_COUNT += 1
-        threading.Timer(1.0, _register_with_retry).start()
-    else:
-        logger.error(
-            "joy_image patch: vllm_omni never became ready after %d retries.",
-            _MAX_RETRIES,
-        )
+        timer = threading.Timer(1.0, _retry_register_once)
+        timer.daemon = True
+        _RETRY_TIMER = timer
+        timer.start()
+
+
+def _retry_register_once() -> None:
+    global _RETRY_TIMER
+    with _REGISTER_LOCK:
+        _RETRY_TIMER = None
+    _register_with_retry()
 
 
 def _pipeline_registry_settled() -> bool:
@@ -390,3 +388,4 @@ def apply_joy_image_patch() -> None:
         logger.warning("Failed to install joy_image files.", exc_info=True)
         return
     _register_with_retry()
+

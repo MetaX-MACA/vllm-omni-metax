@@ -35,6 +35,7 @@ def apply_wan_sync_patch() -> None:
 
     try:
         from vllm_omni.diffusion.models.wan2_2 import pipeline_wan2_2
+        original_forward = pipeline_wan2_2.Wan22Pipeline.forward
     except Exception:
         # vllm_omni is still initialising; retry shortly afterwards.
         if _RETRY_COUNT < _MAX_RETRIES:
@@ -46,8 +47,6 @@ def apply_wan_sync_patch() -> None:
                 _MAX_RETRIES,
             )
         return
-
-    original_forward = pipeline_wan2_2.Wan22Pipeline.forward
 
     def _forward_with_sync(self, req):
         from vllm_omni.platforms import current_omni_platform  # lazy import
